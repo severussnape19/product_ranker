@@ -11,16 +11,25 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import csv
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="🛒 Amazon Product Finder AI",
-    page_icon="🛒",
+    page_title="🤖 Amazon Shopping Assistant",
+    page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for better styling
+# Initialize session state
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'search_results' not in st.session_state:
+    st.session_state.search_results = None
+if 'search_params' not in st.session_state:
+    st.session_state.search_params = {}
+
+# Custom CSS for chatbot styling
 st.markdown("""
 <style>
     .main-header {
@@ -28,119 +37,209 @@ st.markdown("""
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         padding: 2rem;
-        border-radius: 10px;
+        border-radius: 15px;
         margin-bottom: 2rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
     
-    .product-card {
+    .chat-message {
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        max-width: 80%;
+    }
+    
+    .user-message {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        margin-left: auto;
+        border-bottom-right-radius: 5px;
+    }
+    
+    .bot-message {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        color: #333;
+        margin-right: auto;
+        border-bottom-left-radius: 5px;
+    }
+    
+    .product-card-chat {
+        background: white;
         border: 1px solid #ddd;
         border-radius: 10px;
         padding: 1rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .positive-insight {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 5px;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        color: #155724;
+        font-weight: 500;
+    }
+    
+    .negative-insight {
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 5px;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+        color: #721c24;
+        font-weight: 500;
+    }
+    
+    .quick-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
         margin: 1rem 0;
-        background: white;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
     
-    .metric-container {
-        background: linear-gradient(135deg, #ff6b6b, #feca57);
+    .action-button {
+        background: linear-gradient(135deg, #667eea, #764ba2);
         color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        text-align: center;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 0.9rem;
     }
     
-    .recommendation-box {
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #666;
+        font-style: italic;
+    }
+    
+    .recommendation-highlight {
         background: linear-gradient(135deg, #00d2ff, #3a7bd5);
         color: white;
         padding: 1.5rem;
-        border-radius: 10px;
+        border-radius: 15px;
         margin: 1rem 0;
-    }
-    
-    .stProgress .st-bo {
-        background: linear-gradient(135deg, #667eea, #764ba2);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- Enhanced Ranking & Analysis System ------------------- #
+# ------------------- Enhanced Customer Insights Extraction ------------------- #
+class CustomerInsightsExtractor:
+    def __init__(self):
+        self.positive_keywords = [
+            'positive', 'appreciate', 'good', 'great', 'excellent', 'love', 
+            'smooth', 'solid', 'value', 'quality', 'comfortable', 'durable',
+            'recommend', 'satisfied', 'happy', 'beautiful', 'sturdy', 'worth',
+            'amazing', 'perfect', 'fantastic', 'outstanding', 'impressive'
+        ]
+        
+        self.negative_keywords = [
+            'negative', 'concern', 'problem', 'poor', 'bad', 'issue', 
+            'slow', 'heat', 'battery', 'terrible', 'awful', 'worst', 'hate',
+            'cheap', 'flimsy', 'uncomfortable', 'difficult', 'complaint',
+            'disappointed', 'defective', 'broken', 'useless'
+        ]
+    
+    def extract_comprehensive_insights(self, url):
+        """Extract comprehensive customer insights from Amazon product page"""
+        try:
+            resp = requests.get(url, headers=random_headers(), timeout=30)
+            if resp.status_code != 200:
+                return {}
+
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            page_text = resp.text.lower()
+            
+            # Check if we're blocked
+            blocked_phrases = ['captcha', 'robot check', 'unusual traffic']
+            if any(phrase in page_text for phrase in blocked_phrases):
+                return {}
+            
+            insights = {}
+            
+            # Search for "Customers say" variants
+            variants = [
+                'customers say', 'customer say', 'customers find', 'customer find',
+                'customers mention', 'customers report', 'review highlights', 
+                'customer insights', 'what customers say', 'customers love',
+                'customers appreciate', 'buyers say'
+            ]
+            
+            found_variants = []
+            customers_say_texts = []
+            
+            for variant in variants:
+                if variant in page_text:
+                    found_variants.append(variant)
+                    elements = soup.find_all(string=re.compile(variant, re.IGNORECASE))
+                    for elem in elements:
+                        parent = elem.parent
+                        if parent:
+                            container = parent.find_parent(['div', 'section', 'span'])
+                            if container:
+                                text = container.get_text(separator=" ", strip=True)
+                                if len(text) > 50 and text not in customers_say_texts:
+                                    customers_say_texts.append(text[:1000])
+            
+            insights['raw_customer_texts'] = customers_say_texts
+            insights['found_variants'] = found_variants
+            insights.update(self.analyze_sentiment(customers_say_texts))
+            
+            return insights
+            
+        except Exception as e:
+            return {}
+    
+    def analyze_sentiment(self, texts):
+        """Analyze sentiment from customer texts"""
+        if not texts:
+            return {}
+        
+        positive_mentions = []
+        negative_mentions = []
+        
+        sentences = []
+        for text in texts:
+            sentences.extend(re.split(r'(?<=[.!?])\s+', text))
+        
+        for sentence in sentences:
+            if len(sentence.strip()) < 10:
+                continue
+                
+            sentence_lower = sentence.lower()
+            positive_score = sum(1 for keyword in self.positive_keywords if keyword in sentence_lower)
+            negative_score = sum(1 for keyword in self.negative_keywords if keyword in sentence_lower)
+            
+            if positive_score > negative_score and positive_score > 0:
+                positive_mentions.append(sentence.strip())
+            elif negative_score > positive_score and negative_score > 0:
+                negative_mentions.append(sentence.strip())
+        
+        return {
+            'positive_mentions': positive_mentions[:5],
+            'negative_mentions': negative_mentions[:5],
+            'sentiment_summary': {
+                'total_positive': len(positive_mentions),
+                'total_negative': len(negative_mentions),
+                'overall_sentiment': 'positive' if len(positive_mentions) > len(negative_mentions) else 'negative' if len(negative_mentions) > 0 else 'neutral'
+            }
+        }
+
+# ------------------- Product Analysis ------------------- #
 class ProductAnalyzer:
     def __init__(self):
         self.weights = {
-            'price_value': 0.25,      # Price competitiveness
-            'rating_quality': 0.30,   # Rating score
-            'review_volume': 0.20,    # Review count influence
-            'customer_sentiment': 0.25 # Positive vs negative sentiment
+            'price_value': 0.20,
+            'rating_quality': 0.30,
+            'review_volume': 0.20,
+            'customer_sentiment': 0.30
         }
-    
-    def analyze_price_value(self, products):
-        """Analyze price competitiveness (lower price = better value)"""
-        if not products:
-            return products
-        
-        prices = [p['price_val'] for p in products if p['price_val']]
-        if not prices:
-            return products
-            
-        max_price = max(prices)
-        min_price = min(prices)
-        
-        for product in products:
-            if product['price_val']:
-                # Invert price score (lower price = higher score)
-                price_score = ((max_price - product['price_val']) / (max_price - min_price)) * 100
-                product['price_value_score'] = round(price_score, 2)
-            else:
-                product['price_value_score'] = 0
-        
-        return products
-    
-    def analyze_customer_sentiment(self, product):
-        """Analyze customer sentiment from scraped insights"""
-        sentiment_score = 50  # Neutral baseline
-        
-        customers_say = product.get('customers_say', {})
-        
-        # Positive indicators
-        positive_text = (
-            customers_say.get('positive_mentions', '') + ' ' +
-            customers_say.get('customers_say_section', '') + ' ' +
-            customers_say.get('key_features', '')
-        ).lower()
-        
-        # Negative indicators
-        negative_text = customers_say.get('negative_mentions', '').lower()
-        
-        # Positive keywords with weights
-        positive_keywords = {
-            'excellent': 10, 'amazing': 9, 'perfect': 8, 'love': 7,
-            'great': 6, 'good': 5, 'comfortable': 6, 'durable': 7,
-            'quality': 5, 'recommend': 8, 'satisfied': 6, 'happy': 5,
-            'beautiful': 6, 'sturdy': 7, 'value': 5, 'worth': 6
-        }
-        
-        # Negative keywords with weights
-        negative_keywords = {
-            'terrible': -10, 'awful': -9, 'worst': -8, 'hate': -7,
-            'poor': -6, 'bad': -5, 'cheap': -4, 'flimsy': -6,
-            'uncomfortable': -7, 'difficult': -5, 'problem': -6,
-            'issue': -5, 'complaint': -6, 'disappointed': -7
-        }
-        
-        # Calculate positive sentiment
-        for word, weight in positive_keywords.items():
-            count = positive_text.count(word)
-            sentiment_score += count * weight
-        
-        # Calculate negative sentiment
-        for word, weight in negative_keywords.items():
-            count = negative_text.count(word)
-            sentiment_score += count * weight
-        
-        # Normalize to 0-100 scale
-        sentiment_score = max(0, min(100, sentiment_score))
-        
-        return round(sentiment_score, 2)
     
     def calculate_final_rankings(self, products):
         """Calculate comprehensive final rankings"""
@@ -148,7 +247,20 @@ class ProductAnalyzer:
             return products
         
         # Analyze price value
-        products = self.analyze_price_value(products)
+        prices = [p['price_val'] for p in products if p['price_val']]
+        if prices:
+            max_price = max(prices)
+            min_price = min(prices)
+            
+            for product in products:
+                if product['price_val']:
+                    if max_price == min_price:
+                        price_score = 50
+                    else:
+                        price_score = ((max_price - product['price_val']) / (max_price - min_price)) * 100
+                    product['price_value_score'] = round(price_score, 2)
+                else:
+                    product['price_value_score'] = 0
         
         # Calculate sentiment scores
         for product in products:
@@ -159,14 +271,14 @@ class ProductAnalyzer:
         max_reviews = max(p['review_count'] or 0 for p in products)
         
         for product in products:
-            # Rating quality score
             rating_score = ((product['rating_val'] or 0) / max_rating) * 100 if max_rating > 0 else 0
             
-            # Review volume score (logarithmic)
             import math
-            review_score = (math.log((product['review_count'] or 0) + 1) / math.log(max_reviews + 1)) * 100 if max_reviews > 0 else 0
+            if max_reviews > 0:
+                review_score = (math.log((product['review_count'] or 0) + 1) / math.log(max_reviews + 1)) * 100
+            else:
+                review_score = 0
             
-            # Calculate weighted final score
             final_score = (
                 (product['price_value_score'] * self.weights['price_value']) +
                 (rating_score * self.weights['rating_quality']) +
@@ -180,19 +292,179 @@ class ProductAnalyzer:
                 'final_score': round(final_score, 2)
             })
         
-        # Sort by final score
         products.sort(key=lambda x: x['final_score'], reverse=True)
         
-        # Add ranking
         for i, product in enumerate(products, 1):
             product['final_rank'] = i
         
         return products
+    
+    def analyze_customer_sentiment(self, product):
+        """Enhanced customer sentiment analysis"""
+        sentiment_score = 50
+        
+        customers_insights = product.get('customers_insights', {})
+        positive_mentions = customers_insights.get('positive_mentions', [])
+        negative_mentions = customers_insights.get('negative_mentions', [])
+        
+        total_positive = len(positive_mentions)
+        total_negative = len(negative_mentions)
+        
+        if total_positive + total_negative > 0:
+            positive_weight = total_positive * 8
+            negative_weight = total_negative * 6
+            sentiment_score = 50 + positive_weight - negative_weight
+        
+        if customers_insights.get('raw_customer_texts'):
+            sentiment_score += 10
+        
+        if not customers_insights:
+            sentiment_score -= 20
+        
+        sentiment_score = max(0, min(100, sentiment_score))
+        return round(sentiment_score, 2)
 
-# Initialize analyzer
-@st.cache_resource
-def get_analyzer():
-    return ProductAnalyzer()
+# ------------------- Chatbot Engine ------------------- #
+class AmazonShoppingBot:
+    def __init__(self):
+        self.analyzer = ProductAnalyzer()
+        self.insights_extractor = CustomerInsightsExtractor()
+        self.context = {}
+    
+    def parse_user_message(self, message):
+        """Parse user message to extract intent and parameters"""
+        message_lower = message.lower()
+        
+        # Extract product query
+        product_indicators = ['find', 'search', 'looking for', 'want', 'need', 'show me', 'get me']
+        if any(indicator in message_lower for indicator in product_indicators):
+            # Extract the product name
+            for indicator in product_indicators:
+                if indicator in message_lower:
+                    parts = message_lower.split(indicator)
+                    if len(parts) > 1:
+                        product_query = parts[1].strip()
+                        # Clean up common words
+                        product_query = re.sub(r'\b(under|below|within|around|for|a|an|the)\b', '', product_query).strip()
+                        break
+        else:
+            product_query = message_lower
+        
+        # Extract price range
+        price_matches = re.findall(r'₹?(\d+(?:,\d+)*(?:\.\d+)?)', message)
+        prices = [float(p.replace(',', '')) for p in price_matches]
+        
+        min_price = None
+        max_price = None
+        
+        if len(prices) == 1:
+            if any(word in message_lower for word in ['under', 'below', 'less than', 'max']):
+                max_price = prices[0]
+                min_price = 1000
+            else:
+                min_price = max(1000, prices[0] - 10000)
+                max_price = prices[0] + 10000
+        elif len(prices) >= 2:
+            min_price = min(prices)
+            max_price = max(prices)
+        else:
+            # Default price range
+            min_price = 5000
+            max_price = 100000
+        
+        return {
+            'intent': 'search',
+            'product_query': product_query,
+            'min_price': min_price,
+            'max_price': max_price
+        }
+    
+    def generate_response(self, user_message):
+        """Generate chatbot response"""
+        parsed = self.parse_user_message(user_message)
+        
+        if parsed['intent'] == 'search':
+            return self.search_products(parsed)
+        else:
+            return "I'd be happy to help you find products on Amazon! Just tell me what you're looking for and your budget."
+    
+    def search_products(self, params):
+        """Search for products and return formatted response"""
+        try:
+            # Store search parameters
+            st.session_state.search_params = params
+            
+            # Search products
+            all_products = []
+            
+            for page in range(1, 3):  # Search 2 pages
+                html = fetch_amazon_html(params['product_query'], params['min_price'], params['max_price'], page=page)
+                if html:
+                    products = parse_amazon_html(html)
+                    filtered_products = [
+                        p for p in products 
+                        if p['price_val'] and params['min_price'] <= p['price_val'] <= params['max_price']
+                    ]
+                    all_products.extend(filtered_products)
+                time.sleep(2)
+            
+            if not all_products:
+                return "I couldn't find any products matching your criteria. Try adjusting your search terms or price range."
+            
+            # Get top products
+            all_products.sort(key=lambda x: (x['rating_val'] * x['review_count']), reverse=True)
+            top_products = all_products[:4]  # Get top 4 products
+            
+            # Extract customer insights for top products
+            for product in top_products:
+                customers_insights = self.insights_extractor.extract_comprehensive_insights(product['link'])
+                product['customers_insights'] = customers_insights
+                time.sleep(2)  # Be respectful
+            
+            # Analyze and rank
+            analyzed_products = self.analyzer.calculate_final_rankings(top_products)
+            
+            # Store results
+            st.session_state.search_results = analyzed_products
+            
+            # Generate response
+            return self.format_search_results(analyzed_products, params)
+            
+        except Exception as e:
+            return f"Sorry, I encountered an error while searching: {str(e)}"
+    
+    def format_search_results(self, products, params):
+        """Format search results for chat display"""
+        if not products:
+            return "No products found."
+        
+        best_product = products[0]
+        
+        response = f"🎉 **Great! I found {len(products)} amazing products for '{params['product_query']}' in your budget of ₹{params['min_price']:,} - ₹{params['max_price']:,}!**\n\n"
+        
+        response += "## 🏆 My Top Recommendation:\n\n"
+        response += f"**{best_product['title'][:80]}...**\n\n"
+        response += f"- 💰 **Price:** ₹{best_product['price_val']:,.2f}\n"
+        response += f"- ⭐ **Rating:** {best_product['rating_val']}/5.0 ({best_product['review_count']:,} reviews)\n"
+        response += f"- 🎯 **AI Score:** {best_product['final_score']}/100\n"
+        response += f"- 😊 **Customer Sentiment:** {best_product['sentiment_score']}/100\n\n"
+        
+        # Add customer insights if available
+        insights = best_product.get('customers_insights', {})
+        if insights.get('positive_mentions'):
+            response += "**✅ What customers love:**\n"
+            for mention in insights['positive_mentions'][:2]:
+                response += f"- {mention[:100]}...\n"
+        
+        if insights.get('negative_mentions'):
+            response += "\n**⚠️ Common concerns:**\n"
+            for mention in insights['negative_mentions'][:1]:
+                response += f"- {mention[:100]}...\n"
+        
+        response += f"\n🔗 [View on Amazon]({best_product['link']})\n\n"
+        response += "Would you like to see more options or get details about a specific product?"
+        
+        return response
 
 # ------------------- Core Scraping Functions ------------------- #
 def random_headers():
@@ -202,9 +474,11 @@ def random_headers():
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/118.0.0.0 Safari/537.36"
         ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1"
     }
 
 def build_search_url(query, low, high, page=1, domain="amazon.in"):
@@ -224,7 +498,6 @@ def fetch_amazon_html(query, low, high, page=1, domain="amazon.in", retries=3):
             html = resp.text.lower()
             for phrase in ["captcha","robot check","unusual traffic"]:
                 if phrase in html:
-                    st.warning(f"⚠️ Bot detection detected: '{phrase}'")
                     return None
             return resp.text
         except Exception as e:
@@ -280,481 +553,170 @@ def parse_amazon_html(html):
     
     return results
 
-def scrape_customers_say_section(url):
-    """
-    Fetch the 'What Customers Say' or 'Customer Insights' section directly from an Amazon product page.
-    Returns a dictionary with the extracted text.
-    """
-    try:
-        resp = requests.get(url, headers=random_headers(), timeout=30)
-        if resp.status_code != 200:
-            return {}
-
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        customers_say_data = {}
-
-        # Look for the section heading (h2, span, etc.) containing 'customer insights' or 'customers say'
-        section = None
-        for header in soup.find_all(["h2", "span"], string=re.compile(r'customer insights|what customers say', re.IGNORECASE)):
-            parent_div = header.find_parent("div")
-            if parent_div:
-                section = parent_div
-                break
-
-        if section:
-            customers_say_data['customers_say_section'] = section.get_text(separator=" ", strip=True)[:800]
-
-        return customers_say_data
-
-    except Exception as e:
-        return {}
-
-# ------------------- Main Streamlit App ------------------- #
+# ------------------- Main Chatbot App ------------------- #
 def main():
+    # Initialize bot
+    if 'bot' not in st.session_state:
+        st.session_state.bot = AmazonShoppingBot()
+    
     # Header
     st.markdown("""
     <div class="main-header">
-        <h1>🛒 Amazon Product Finder AI</h1>
-        <p>Find the best products with AI-powered analysis and ranking</p>
+        <h1>🤖 Amazon Shopping Assistant</h1>
+        <p>Your AI-powered shopping companion for finding the best products!</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Sidebar for search parameters
-    with st.sidebar:
-        st.header("🔍 Search Parameters")
-        
-        # Search query
-        query = st.text_input(
-            "Product Search Query",
-            placeholder="e.g., gaming laptop, wireless headphones, office chair",
-            help="Enter the product you want to search for"
-        )
-        
-        # Price range
-        st.subheader("💰 Price Range (₹)")
-        col1, col2 = st.columns(2)
-        with col1:
-            min_price = st.number_input("Minimum", min_value=1000, value=10000, step=1000)
-        with col2:
-            max_price = st.number_input("Maximum", min_value=5000, value=100000, step=5000)
-        
-        # Advanced options
-        with st.expander("⚙️ Advanced Options"):
-            max_pages = st.slider("Pages to Scan", 1, 10, 3, help="More pages = more products but slower")
-            max_products = st.slider("Products to Analyze", 3, 10, 5, help="Number of top products to analyze in detail")
-        
-        # Search button
-        search_button = st.button("🚀 Find Best Products", type="primary", use_container_width=True)
-        
-        # Quick search options
-        st.subheader("⚡ Quick Searches")
-        quick_searches = [
-            ("💻 Gaming Laptop", "gaming laptop"),
-            ("🎧 Wireless Headphones", "wireless headphones"),
-            ("📱 Smartphone", "smartphone"),
-            ("🪑 Office Chair", "office chair"),
-            ("🛋️ Sofa Set", "sofa set"),
-            ("⌨️ Mechanical Keyboard", "mechanical keyboard")
-        ]
-        
-        for display, search_term in quick_searches:
-            if st.button(display, key=f"quick_{search_term}", use_container_width=True):
-                st.session_state.query = search_term
-                st.rerun()
+    # Welcome message
+    if not st.session_state.messages:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "👋 Hi! I'm your Amazon Shopping Assistant! I can help you find the best products based on ratings, prices, and customer reviews.\n\n**Just tell me:**\n- What product you're looking for\n- Your budget (optional)\n\n**Examples:**\n- \"Find me a gaming laptop under ₹80,000\"\n- \"I need wireless headphones between ₹2,000 and ₹5,000\"\n- \"Show me the best office chairs\""
+        })
     
-    # Handle quick search
-    if 'query' in st.session_state:
-        query = st.session_state.query
-        del st.session_state.query
+    # Display chat messages
+    chat_container = st.container()
     
-    # Main content area
-    if not query:
-        # Welcome screen
-        st.markdown("""
-        ## 👋 Welcome to Amazon Product Finder AI!
+    with chat_container:
+        for message in st.session_state.messages:
+            if message["role"] == "user":
+                st.markdown(f"""
+                <div class="chat-message user-message">
+                    <strong>You:</strong> {message["content"]}
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="chat-message bot-message">
+                    <strong>🤖 Assistant:</strong><br><br>{message["content"]}
+                </div>
+                """, unsafe_allow_html=True)
         
-        This tool helps you find the **best products** on Amazon by analyzing:
-        
-        - 🌟 **Rating Quality** - Higher ratings from customers
-        - 💰 **Price Value** - Best value for your money  
-        - 📊 **Review Volume** - Products with more reviews (higher confidence)
-        - 😊 **Customer Sentiment** - What customers actually say about the product
-        
-        ### How to use:
-        1. Enter a product name in the sidebar (e.g., "gaming laptop")
-        2. Set your price range
-        3. Click "Find Best Products"
-        4. Get AI-powered recommendations with detailed analysis!
-        
-        ### Features:
-        - 🏆 **Smart Ranking** - AI combines multiple factors for best recommendations
-        - 📈 **Visual Analytics** - Interactive charts and graphs
-        - 🔍 **Deep Analysis** - Customer sentiment analysis from reviews
-        - 📱 **Real-time Data** - Fresh data directly from Amazon
-        
-        **Ready to find your perfect product? Start by entering a search term in the sidebar! →**
-        """)
-        
-        # Sample results preview
-        st.subheader("🎯 Sample Results Preview")
-        sample_data = {
-            'Product': ['Gaming Laptop A', 'Gaming Laptop B', 'Gaming Laptop C'],
-            'Price (₹)': [75000, 85000, 65000],
-            'Rating': [4.5, 4.3, 4.1],
-            'Reviews': [2847, 1523, 3241],
-            'AI Score': [89.2, 84.7, 78.3]
-        }
-        st.dataframe(pd.DataFrame(sample_data), use_container_width=True)
-        
-        return
+        # Show search results if available
+        if st.session_state.search_results:
+            st.markdown("### 📦 Product Details")
+            display_products_in_chat(st.session_state.search_results)
     
-    # Validate inputs
-    if min_price >= max_price:
-        st.error("❌ Minimum price must be less than maximum price!")
-        return
-    
-    # Search execution
-    if search_button or query:
-        st.header(f"🔍 Searching for: **{query}**")
-        st.info(f"💰 Price Range: ₹{min_price:,} - ₹{max_price:,}")
-        
-        # Progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        analyzer = get_analyzer()
-        all_products = []
-        
-        # Phase 1: Search products
-        status_text.text("🔍 Searching Amazon pages...")
-        for page in range(1, max_pages + 1):
-            progress_bar.progress((page / max_pages) * 0.4)  # 40% for searching
-            status_text.text(f"📖 Scanning page {page}/{max_pages}...")
-            
-            html = fetch_amazon_html(query, min_price, max_price, page=page)
-            if not html:
-                st.warning(f"⚠️ Failed to fetch page {page}")
-                break
-                
-            products = parse_amazon_html(html)
-            filtered_products = [
-                p for p in products 
-                if p['price_val'] and min_price <= p['price_val'] <= max_price
-            ]
-            all_products.extend(filtered_products)
-            
-            # Add delay to be respectful
-            time.sleep(1)
-        
-        if not all_products:
-            st.error("❌ No products found matching your criteria. Try adjusting your search terms or price range.")
-            return
-        
-        # Sort and get top products
-        all_products.sort(key=lambda x: (x['rating_val'] * x['review_count']), reverse=True)
-        top_products = all_products[:max_products]
-        
-        st.success(f"✅ Found {len(all_products)} total products, analyzing top {len(top_products)}")
-        
-        # Phase 2: Analyze customer insights
-        status_text.text("📝 Analyzing customer insights...")
-        for i, product in enumerate(top_products):
-            progress_bar.progress(0.4 + ((i + 1) / len(top_products)) * 0.5)  # 50% for analysis
-            status_text.text(f"🔄 Analyzing product {i+1}/{len(top_products)}...")
-            
-            customers_say = scrape_customers_say_section(product['link'])
-            product['customers_say'] = customers_say
-            
-            # Add delay
-            time.sleep(2)
-        
-        # Phase 3: Final ranking
-        status_text.text("🏆 Generating final rankings...")
-        progress_bar.progress(0.9)
-        
-        analyzed_products = analyzer.calculate_final_rankings(top_products)
-        
-        progress_bar.progress(1.0)
-        status_text.text("✅ Analysis complete!")
-        
-        # Clear progress
-        time.sleep(1)
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Display results
-        display_results(analyzed_products, query)
-
-def display_results(products, query):
-    """Display the analysis results"""
-    if not products:
-        st.error("No products to display")
-        return
-    
-    best_product = products[0]
-    
-    # AI Recommendation
-    st.markdown(f"""
-    <div class="recommendation-box">
-        <h3>🏆 AI RECOMMENDATION</h3>
-        <h4>{best_product['title'][:80]}...</h4>
-        <p><strong>Why this is the best choice:</strong></p>
-        <ul>
-            <li>🎯 <strong>Overall AI Score:</strong> {best_product['final_score']}/100</li>
-            <li>💰 <strong>Price:</strong> ₹{best_product['price_val']:,.2f}</li>
-            <li>⭐ <strong>Rating:</strong> {best_product['rating_val']}/5.0 ({best_product['review_count']:,} reviews)</li>
-            <li>😊 <strong>Customer Sentiment:</strong> {best_product['sentiment_score']}/100</li>
-        </ul>
-        <p>This product offers the best combination of price, quality, and customer satisfaction based on our AI analysis.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Summary metrics
+    # Quick action buttons
+    st.markdown("### ⚡ Quick Searches")
     col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
-        st.metric(
-            "🏆 Best Score", 
-            f"{best_product['final_score']}/100",
-            help="AI-calculated overall score"
-        )
+    quick_searches = [
+        ("💻 Laptops", "gaming laptop under ₹100000"),
+        ("🎧 Headphones", "wireless headphones under ₹5000"),
+        ("📱 Smartphones", "smartphone between ₹15000 and ₹30000"),
+        ("🪑 Chairs", "office chair under ₹20000")
+    ]
     
-    with col2:
-        avg_price = sum(p['price_val'] for p in products) / len(products)
-        st.metric(
-            "💰 Best Price", 
-            f"₹{best_product['price_val']:,.0f}",
-            delta=f"₹{best_product['price_val'] - avg_price:,.0f} vs avg",
-            delta_color="inverse"
-        )
+    for i, (display, query) in enumerate(quick_searches):
+        with [col1, col2, col3, col4][i]:
+            if st.button(display, key=f"quick_{i}", use_container_width=True):
+                st.session_state.messages.append({"role": "user", "content": query})
+                with st.spinner("🔍 Searching for products..."):
+                    response = st.session_state.bot.generate_response(query)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.rerun()
     
-    with col3:
-        st.metric(
-            "⭐ Best Rating", 
-            f"{best_product['rating_val']}/5.0",
-            help="Customer rating"
-        )
+    # Chat input
+    user_input = st.chat_input("Type your message here... (e.g., 'Find me a gaming laptop under ₹80,000')")
     
-    with col4:
-        st.metric(
-            "👥 Most Trusted", 
-            f"{best_product['review_count']:,}",
-            help="Number of customer reviews"
-        )
+    if user_input:
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        
+        # Show typing indicator
+        with st.spinner("🤖 Let me search for the best products for you..."):
+            response = st.session_state.bot.generate_response(user_input)
+        
+        # Add bot response
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        st.rerun()
     
-    # Interactive charts
-    st.subheader("📊 Product Analysis Charts")
-    
-    # Create dataframe for charts
-    df = pd.DataFrame(products)
-    
-    # Chart tabs
-    chart_tab1, chart_tab2, chart_tab3 = st.tabs(["📈 Score Breakdown", "💰 Price vs Rating", "📊 Detailed Metrics"])
-    
-    with chart_tab1:
-        # Score breakdown chart
-        # Create subplot with polar support
-        fig_scores = make_subplots(
-            rows=1, cols=2,
-            subplot_titles=("Overall AI Scores", "Score Components"),
-            specs=[[{"type": "bar"}, {"type": "polar"}]]   # <-- use polar
-        )
+    # Sidebar with additional options
+    with st.sidebar:
+        st.header("🛠️ Chat Options")
+        
+        if st.button("🗑️ Clear Chat", type="secondary"):
+            st.session_state.messages = []
+            st.session_state.search_results = None
+            st.rerun()
+        
+        if st.session_state.search_results:
+            st.subheader("📊 Current Results")
+            st.write(f"Found {len(st.session_state.search_results)} products")
+            
+            if st.button("📈 View Analytics", type="primary"):
+                show_analytics_popup()
+        
+        st.markdown("---")
+        st.markdown("""
+        ### 💡 Tips:
+        - Be specific about what you want
+        - Mention your budget for better results
+        - Ask for comparisons between products
+        - Request specific features you need
+        
+        ### 🔍 I can help you find:
+        - Electronics & Gadgets
+        - Home & Kitchen items
+        - Fashion & Accessories  
+        - Books & Stationery
+        - Sports & Fitness gear
+        - And much more!
+        """)
 
-        # Example bar
-        fig_scores.add_trace(
-            go.Bar(x=["Prod A", "Prod B"], y=[80, 90], name="Overall Score"),
-            row=1, col=1
-        )
+def display_products_in_chat(products):
+    """Display products in chat-friendly format"""
+    for i, product in enumerate(products):
+        with st.expander(f"#{i+1} - {product['title'][:60]}... (AI Score: {product['final_score']}/100)", 
+                        expanded=(i == 0)):
+            
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown(f"""
+                **🏷️ {product['title']}**
+                
+                **💰 Price:** ₹{product['price_val']:,.2f}  
+                **⭐ Rating:** {product['rating_val']}/5.0 ({product['review_count']:,} reviews)  
+                **🎯 AI Score:** {product['final_score']}/100
+                """)
+                
+                # Customer insights
+                insights = product.get('customers_insights', {})
+                if insights.get('positive_mentions'):
+                    st.markdown("**✅ What customers love:**")
+                    for mention in insights['positive_mentions'][:2]:
+                        st.markdown(f"<div class='positive-insight'>{mention}</div>", unsafe_allow_html=True)
+                
+                if insights.get('negative_mentions'):
+                    st.markdown("**⚠️ Common concerns:**")
+                    for mention in insights['negative_mentions'][:1]:
+                        st.markdown(f"<div class='negative-insight'>{mention}</div>", unsafe_allow_html=True)
+            
+            with col2:
+                st.metric("Rank", f"#{product['final_rank']}")
+                st.metric("Sentiment", f"{product.get('sentiment_score', 0)}/100")
+                st.link_button("🛒 Buy Now", product['link'], use_container_width=True)
 
-        # Example radar (scatterpolar)
-        fig_scores.add_trace(
-            go.Scatterpolar(
-                r=[80, 70, 90, 85, 75],
-                theta=["Quality", "Price", "Durability", "Features", "Support"],
-                fill="toself",
-                name="Product A"
-            ),
-            row=1, col=2
-        )
-
-        fig_scores.update_layout(height=600, width=1000, showlegend=True)
+def show_analytics_popup():
+    """Show analytics in a popup"""
+    if st.session_state.search_results:
+        st.markdown("### 📊 Search Analytics")
         
-        # Radar chart for best product
-        categories = ['Price Value', 'Rating Quality', 'Review Volume', 'Customer Sentiment']
-        values = [
-            best_product.get('price_value_score', 0),
-            best_product.get('rating_quality_score', 0), 
-            best_product.get('review_volume_score', 0),
-            best_product.get('sentiment_score', 0)
-        ]
+        df = pd.DataFrame(st.session_state.search_results)
         
-        fig_scores.add_trace(
-            go.Scatterpolar(
-                r=values,
-                theta=categories,
-                fill='toself',
-                name=f"#{best_product['final_rank']} Best Product",
-                line=dict(color='#ff6b6b')
-            ),
-            row=1, col=2
-        )
-        
-        fig_scores.update_layout(height=400, showlegend=True)
-        fig_scores.update_polars(radialaxis=dict(range=[0, 100]))
-        
-        st.plotly_chart(fig_scores, use_container_width=True)
-    
-    with chart_tab2:
-        # Price vs Rating scatter plot
-        fig_scatter = px.scatter(
+        # Price vs Rating chart
+        fig = px.scatter(
             df, 
             x='price_val', 
             y='rating_val',
             size='review_count',
             color='final_score',
-            hover_data=['final_rank'],
             title="Price vs Rating Analysis",
-            labels={
-                'price_val': 'Price (₹)',
-                'rating_val': 'Rating (out of 5)',
-                'review_count': 'Review Count',
-                'final_score': 'AI Score'
-            },
-            color_continuous_scale='RdYlBu_r'
+            labels={'price_val': 'Price (₹)', 'rating_val': 'Rating'}
         )
-        
-        fig_scatter.update_traces(
-            hovertemplate='<b>Rank #%{customdata[0]}</b><br>' +
-                         'Price: ₹%{x:,.0f}<br>' +
-                         'Rating: %{y}/5<br>' +
-                         'Reviews: %{marker.size}<br>' +
-                         'AI Score: %{marker.color}/100<extra></extra>'
-        )
-        
-        st.plotly_chart(fig_scatter, use_container_width=True)
-    
-    with chart_tab3:
-        # Detailed metrics table
-        metrics_df = pd.DataFrame([
-            {
-                'Rank': p['final_rank'],
-                'Product': p['title'][:50] + '...',
-                'Price (₹)': f"₹{p['price_val']:,.0f}",
-                'Rating': f"{p['rating_val']}/5",
-                'Reviews': f"{p['review_count']:,}",
-                'AI Score': f"{p['final_score']}/100",
-                'Price Value': f"{p.get('price_value_score', 0)}/100",
-                'Sentiment': f"{p.get('sentiment_score', 0)}/100"
-            } for p in products
-        ])
-        
-        st.dataframe(
-            metrics_df,
-            use_container_width=True,
-            hide_index=True
-        )
-    
-    # Detailed product cards
-    st.subheader("🎯 Detailed Product Analysis")
-    
-    for i, product in enumerate(products):
-        with st.expander(f"#{i+1} - {product['title'][:60]}... (Score: {product['final_score']}/100)", 
-                        expanded=(i == 0)):  # Expand first product by default
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.markdown(f"""
-                **🏷️ Product Title:** {product['title']}
-                
-                **💰 Price:** ₹{product['price_val']:,.2f}
-                
-                **⭐ Rating:** {product['rating_val']}/5.0 ({product['review_count']:,} reviews)
-                
-                **🎯 AI Analysis:**
-                - Overall Score: {product['final_score']}/100
-                - Price Value: {product.get('price_value_score', 0)}/100
-                - Rating Quality: {product.get('rating_quality_score', 0)}/100
-                - Review Confidence: {product.get('review_volume_score', 0)}/100
-                - Customer Sentiment: {product.get('sentiment_score', 0)}/100
-                """)
-                
-                # Customer insights
-                customers_say = product.get('customers_say', {})
-                if customers_say.get('positive_mentions'):
-                    st.success(f"✅ **Customers Love:** {customers_say['positive_mentions'][:200]}...")
-                
-                if customers_say.get('negative_mentions'):
-                    st.warning(f"⚠️ **Common Concerns:** {customers_say['negative_mentions'][:200]}...")
-            
-            with col2:
-                # Quick metrics
-                st.metric("Final Rank", f"#{product['final_rank']}")
-                st.metric("AI Score", f"{product['final_score']}/100")
-                
-                # Amazon link
-                st.link_button(
-                    "🛒 View on Amazon",
-                    product['link'],
-                    type="primary",
-                    use_container_width=True
-                )
-    
-    # Export options
-    st.subheader("📥 Export Results")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Download CSV
-        csv_data = pd.DataFrame([
-            {
-                'Rank': p['final_rank'],
-                'Title': p['title'],
-                'Price': p['price_val'],
-                'Rating': p['rating_val'],
-                'Review_Count': p['review_count'],
-                'AI_Score': p['final_score'],
-                'Price_Value_Score': p.get('price_value_score', 0),
-                'Sentiment_Score': p.get('sentiment_score', 0),
-                'Amazon_Link': p['link'],
-                'Search_Query': query,
-                'Analysis_Date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            } for p in products
-        ])
-        
-        st.download_button(
-            "📊 Download CSV",
-            csv_data.to_csv(index=False),
-            file_name=f"amazon_analysis_{query.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    
-    with col2:
-        # Download JSON
-        json_data = {
-            'search_query': query,
-            'analysis_date': datetime.now().isoformat(),
-            'products': products,
-            'summary': {
-                'total_analyzed': len(products),
-                'best_product': products[0]['title'],
-                'best_score': products[0]['final_score'],
-                'price_range': {
-                    'min': min(p['price_val'] for p in products),
-                    'max': max(p['price_val'] for p in products)
-                }
-            }
-        }
-        
-        st.download_button(
-            "📄 Download JSON",
-            json.dumps(json_data, indent=2, ensure_ascii=False),
-            file_name=f"amazon_analysis_{query.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.json",
-            mime="application/json",
-            use_container_width=True
-        )
+        st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
